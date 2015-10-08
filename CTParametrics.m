@@ -1,4 +1,4 @@
-function ctparametrics
+function CTParametrics
     clear all;
     close all;
     fclose all;
@@ -8,32 +8,30 @@ function ctparametrics
     
     %     CTInpfn = 'C:\Documents and Settings\maqsood.yaqub\My Documents\VUmc\code\Matlab\progs\CTPerfusieprogramma\Data\Parametrics\PeerAP.txt';
     %     ROIdata = load(fname, '-ascii');
-    nfr = input('Enter number of time frames ');
     [fnameb, pathb] = uigetfile('*.txt',['Select Input TAC file']);
     cd(pathb);
     fnTACInput = [pathb fnameb];
-    [yInput, roinames, roisizes]=getROIsfrom_VOITOOL_TACfile(fnTACInput,nfr);
-    
+    dataInput=importdata(fnTACInput,' ',3);
+    yInput=dataInput.data;
+
     [fnameb, pathb] = uigetfile('*.txt',['Select Tumor TAC file']);
     fnTACTumour = [pathb fnameb];
-    rownm = fnameb;
+    idname = fnameb;
     
     fnCSV = [fnTACTumour(1:end-4) '_resultsNew.csv'];
     fnPS = [fnTACTumour(1:end-4) '_resultsNew'];
     fnParametric = [fnTACTumour(1:end-4) '_Perfusion'];
     
+    dataTumour=importdata(fnTACTumour,' ',3);
+    yTumour=dataTumour.data;
     
-    [yTumour, roinames, roisizes]=getROIsfrom_VOITOOL_TACfile(fnTACTumour,nfr);
+    ROIdata = [yInput(:,1) yInput(:,4)-yInput(1,4) yTumour(:,4)-yTumour(1,4)];
     
-    tims = [1:nfr]'/60 - 0.5/60;
-    
-    ROIdata = [tims yInput(:,1)-yInput(1,1) yTumour(:,1)-yTumour(1,1)];
-    
-    
-    choiseParM = menu('Include parametric analysis ?', 'Yes', 'No');
+    choiceParM = 0;
+%    choiceParM = menu('Include parametric analysis ?', 'Yes', 'No');
     
     
-    if choiseParM == 1
+    if choiceParM == 1
         [fnameb, pathb] = uigetfile('*.v',['Select ECAT file with dynamic CT data']);
         CTDynfn = [pathb fnameb];
         
@@ -66,15 +64,17 @@ function ctparametrics
     [spl] = initPSfile(0, fnPS, ['CTP analysis']);
     dataR = [];
 
-    [headernm, dataR, spl] = analysisCTTACs(ROIdata, fnPS, fnCSV, spl, rownm, dataR,choiseParM, mhI,shI,vol, CTDynfn, Iwidth, posxl, posyl,fnParametric);
-    writecsv2(0,fnCSV,headernm,dataR, rownm,',');
+    [headernm, dataR, spl] = analysisCTTACs(ROIdata, fnPS, fnCSV, spl, idname, dataR,choiceParM, mhI,shI,vol, CTDynfn, Iwidth, posxl, posyl,fnParametric);
+    writecsv2(0,fnCSV,headernm,dataR, idname,',');
+%    close all
+    close 1 2 5
 end
 
 % ---------------------------------------------
-function [hdr, dataR, spl] = analysisCTTACs(data, fnPS, fnCSV, spl, idname, dataR,choiseParM,mhI,shI,dataI, CTDynfn, Iwidth, posxl, posyl, fnParametric)
+function [hdr, dataR, spl] = analysisCTTACs(data, fnPS, fnCSV, spl, idname, dataR,choiceParM,mhI,shI,dataI, CTDynfn, Iwidth, posxl, posyl, fnParametric)
     [spl] = chapterPSfile(0, fnPS, idname);
     %data = load(fname, '-ascii');
-
+    
     print('-dpsc', '-append', [fnPS '.ps']);
     spl=1; fig=fig_settings(1);
 
@@ -102,8 +102,20 @@ function [hdr, dataR, spl] = analysisCTTACs(data, fnPS, fnCSV, spl, idname, data
     afit = D_art*C_art*exp(-(t-toArt)/(B_art)).*(t-toArt).^A_art;
     afit(t<=toArt) = 0;
     spl = addsubplotTACs(t, a, afit, spl, 'Fitted arterial TAC', 'r.', fnPS, 'b--');
-    a = afit;
 
+    choiceDebug=menu('TAC needs better fit?','Yeah','Noo');
+    while choiceDebug==1
+        percUp = input('Enter percUp for arterial TAC: ');
+        percDown = input('Enter percDown: ');
+        [down50, up20] = excluderecirculation(a, percUp, percDown);
+        [anew, A_art, B_art, D_art, toArt] = fitGamma(a(up20:down50), t(up20:down50));
+        C_art = 1 / ((B_art^(A_art+1)) * (gamma(A_art+1)));
+        afit = D_art*C_art*exp(-(t-toArt)/(B_art)).*(t-toArt).^A_art;
+        afit(t<=toArt) = 0;
+        spl = addsubplotTACs(t, a, afit, spl, 'Fitted arterial TAC', 'r.', fnPS, 'b--');
+        choiceDebug=menu('again?','Yes','Go away');
+    end
+    
     percUp = 0.15;
     percDown = 0.50;
     [down50, up20] = excluderecirculation(c, percUp, percDown);
@@ -112,18 +124,29 @@ function [hdr, dataR, spl] = analysisCTTACs(data, fnPS, fnCSV, spl, idname, data
     cfit = D_tum*C_tum*exp(-(t-toTum)/(B_tum)).*(t-toTum).^A_tum;
     cfit(t<=toTum) = 0;
     spl = addsubplotTACs(t, c, cfit, spl, 'Fitted Tumor TAC', 'r.', fnPS, 'b--');
-    c = cfit;
 
-    if choiseParM == 1
-        DoAndSaveParametric(a, t, up20, down50, A_tum, B_tum, D_tum, toTum, dataR,mhI,shI,dataI, CTDynfn, Iwidth, posxl, posyl, A_art, B_art, D_art, toArt, fnParametric);
+    choiceDebug=menu('TAC needs better fit?','Yeah','Noo');
+    while choiceDebug==1
+        percUp = input('Enter percUp for arterial TAC: ');
+        percDown = input('Enter percDown: ');
+        [down50, up20] = excluderecirculation(c, percUp, percDown);
+        [anew, A_tum, B_tum, D_tum, toTum] = fitGamma(c(up20:down50), t(up20:down50));
+        C_tum = 1 / ((B_tum^(A_tum+1)) * (gamma(A_tum+1)));
+        cfit = D_tum*C_tum*exp(-(t-toTum)/(B_tum)).*(t-toTum).^A_tum;
+        cfit(t<=toTum) = 0;
+        spl = addsubplotTACs(t, c, cfit, spl, 'Fitted Tumor TAC', 'r.', fnPS, 'b--');
+        choiceDebug=menu('again?','Yes','Go away');
+    end
+
+    if choiceParM == 1
+        DoAndSaveParametric(afit, t, up20, down50, A_tum, B_tum, D_tum, toTum, dataR,mhI,shI,dataI, CTDynfn, Iwidth, posxl, posyl, A_art, B_art, D_art, toArt, fnParametric);
     end
 
     delayf = toTum - toArt;
     C_art = 1 / ((B_art^(A_art+1)) * (gamma(A_art+1)));
     afit = D_art*C_art*exp(-(t-toArt-delayf)/(B_art)).*(t-toArt-delayf).^A_art;
     afit(t<=toTum) = 0;
-    a = afit;
-    spl = addsubplotTAC(t, a, spl, 'Delay corrected and fitted arterial TAC', 'r.', fnPS);
+    spl = addsubplotTAC(t, afit, spl, 'Delay corrected and fitted arterial TAC', 'r.', fnPS);
     
     
     
@@ -131,14 +154,14 @@ function [hdr, dataR, spl] = analysisCTTACs(data, fnPS, fnCSV, spl, idname, data
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % MOMENTS
-    AUC_tissue = trapz(c)*stp;
-    AUC_artery = trapz(a)*stp;
+    AUC_tissue = trapz(cfit)*stp;
+    AUC_artery = trapz(afit)*stp;
     Hct_artery = 0.43;
     r = 0.7; % 0.8 for kids
     k = 0.05; % estimated, is the ratio of standard deviation of tissue transit times to the mean transit time 
-    %cog_tissueA=integrate(t(length(t)),t,t.*c)/integrate(t(length(t)),t,c);
-    cog_tissue = trapz(t.*c) / trapz(c);
-    cog_artery = trapz(t.*a) / trapz(a);
+    %cog_tissueA=integrate(t(length(t)),t,t.*cfit)/integrate(t(length(t)),t,cfit);
+    cog_tissue = trapz(t.*cfit) / trapz(cfit);
+    cog_artery = trapz(t.*afit) / trapz(afit);
     m = 0; % difference arrival time true artery vs measured artery
     n = (1-Hct_artery) * (1+k*k) / (2 * (1-r*Hct_artery)*(1-m));
     BF_moments = n * (AUC_tissue / AUC_artery) / (cog_tissue - cog_artery);
@@ -149,79 +172,82 @@ function [hdr, dataR, spl] = analysisCTTACs(data, fnPS, fnCSV, spl, idname, data
     
     noconf = 0;
 
-Amat = zeros(length(t),length(t));
+    Amat = zeros(length(t),length(t));
 
-for ii=1:length(t)
-    Amat(1:ii) = a(ii:-1:1);
-end
-    
-%     if length(c) > 32
-%         cfft = c(1:32)
-%         afft = a(1:32)
-%         tfft = t(1:32)
+    for ii=1:length(t)
+        Amat(1:ii) = afit(ii:-1:1);
+    end
+        
+    cfft = cfit;
+    afft = afit;
+    tfft = t;
+%     if length(cfit) > 32
+%         cfft = cfit(1:32);
+%         afft = afit(1:32);
+%         tfft = t(1:32);
 %     else
-%         if length(c) > 16
-%             cfft = c(1:16)
-%             afft = a(1:16)
-%             tfft = t(1:16)
+%         if length(cfit) > 16
+%             cfft = cfit(1:16);
+%             afft = afit(1:16);
+%             tfft = t(1:16);
 %         else
-%             if length(c) > 8
-%                 cfft = c(1:8)
-%                 afft = a(1:8)
-%                 tfft = t(1:8)
+%             if length(cfit) > 8
+%                 cfft = cfit(1:8);
+%                 afft = afit(1:8);
+%                 tfft = t(1:8);
 %             else
-%                 if length(c) > 4
-%                     cfft = c(1:4)
-%                     afft = a(1:4)
-%                     tfft = t(1:4)
+%                 if length(cfit) > 4
+%                     cfft = cfit(1:4);
+%                     afft = afit(1:4);
+%                     tfft = t(1:4);
 %                 end
 %             end
 %         end
 %     end
 %     
-%     RMultCBF = ifft(fft(cfft)./fft(afft))
-%     [val, imaxRMultCBF] = max(RMultCBF); 
+    RMultCBF = ifft(fft(cfft)./fft(afft));
+    [val, imaxRMultCBF] = max(RMultCBF); 
     
-
+    
     
     
     Xdat_CONV = RMultCBF(imaxRMultCBF:end);
     Ydat_CONV = tfft(imaxRMultCBF:end);
-
+    
     
     [fitsCONV, MTT, CBF] = fitexp(Ydat_CONV, Xdat_CONV, tfft(imaxRMultCBF:end)); 
     
     
-    %cn = [c' zeros(1,length(a')-1)];
-    %P_IRF = customDeconvolution(c', a');
+    %cn = [cfit' zeros(1,length(afit')-1)];
+    %P_IRF = customDeconvolution(cfit', afit');
     spl = addsubplotTACs(tfft(imaxRMultCBF:end), RMultCBF(imaxRMultCBF:end), fitsCONV, spl, 'Deconvolution Rt*CBF fit', 'r.', fnPS, 'b--');
     P_V_deconv = CBF;
     
     
-    %%[testc] = conv(P_IRF, a);
-    %%figure; plot([1:length(testc)], testc, 'r.', [1:length(c)], c, 'b.');
+    %%[testc] = conv(P_IRF, afit);
+    %%figure; plot([1:length(testc)], testc, 'r.', [1:length(cfit)], cfit, 'b.');
     %P_V_deconv = max(P_IRF);
     %MTT_deconv = trapz(P_IRF/P_V_deconv)*stp;
     %Vb_deconv =  trapz(P_IRF)*stp;
-
-
+    
+    
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % MULLANI-GOULD
-    [val, itprime] = max(c);  
-    P_V_mullanigould = c(itprime) / (trapz(a(1:itprime))*stp);
-    A_int_MG = integrate(t,t,a)';
+    [val, itprime] = max(cfit);  
+    P_V_mullanigould = cfit(itprime) / (trapz(afit(1:itprime))*stp);
+    A_int_MG = integrate(t,t,afit)';
     spl = addsubplotTAC(t, A_int_MG, spl, 'Integral arterial', 'b.', fnPS);
 
     % Fick curve, blood flow, perfusion = slope
-    spl = addsubplotFick(A_int_MG, c, spl, 'Fick, Tumor / Integral arterial', 'b.', fnPS);
+    spl = addsubplotFick(A_int_MG, cfit, spl, 'Fick, Tumor / Integral arterial', 'b.', fnPS);
 
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % SLOPE
-    dc = diff(c)./diff(t);
+    dc = diff(cfit)./diff(t);
     [val, imaxdc] = max(dc);
-    [val, imaxa] = max(a);
-    P_V_slope = dc(imaxdc)/a(imaxa);
+    [val, imaxa] = max(afit);
+    P_V_slope = dc(imaxdc)/afit(imaxa);
     spl = addsubplotTAC(t(1:end-1), dc, spl, 'Differential Tumor', 'b.', fnPS);
 
 
@@ -230,8 +256,8 @@ end
     % Use delay corrected and fitten curves for SKM
     % Patlack and Single Tissue Plasma Input Model don't use fitted curves
     % Single Tissue Plasma Input Model has its own delay correction
-    %c_old = c;
-    %a_old = a;
+    %c_old = cfit;
+    %a_old = afit;
 
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -265,7 +291,7 @@ end
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function DoAndSaveParametric(a, t, up20, down50, Ain, Bin, Din, toin, dataR,mhI,shI,vol, CTDynfn, Iwidth, posxl, posyl, A_art, B_art, D_art, toArt, fnParametric)
+function DoAndSaveParametric(afit, t, up20, down50, Ain, Bin, Din, toin, dataR,mhI,shI,vol, CTDynfn, Iwidth, posxl, posyl, A_art, B_art, D_art, toArt, fnParametric)
     % initials
 %    dimx = shI{1}.x_dimension;
 %    dimy = shI{1}.y_dimension;
@@ -289,7 +315,7 @@ function DoAndSaveParametric(a, t, up20, down50, Ain, Bin, Din, toin, dataR,mhI,
     end
 
     
-    [val, imaxa] = max(a);
+    [val, imaxa] = max(afit);
                         
     h=waitbar(0.000001,'Reading dicom data');
     valC = 0;
@@ -318,14 +344,14 @@ function DoAndSaveParametric(a, t, up20, down50, Ain, Bin, Din, toin, dataR,mhI,
                     %C_art = 1 / ((B_art^(A_art+1)) * (gamma(A_art+1)));
                     %afit = D_art*C_art*exp(-(t-toArt-delayf)/(B_art)).*(t-toArt-delayf).^A_art;
                     %afit(t<=toTum) = 0;
-                    %a = afit;
+                    %afit = afit;
                     
                     
                     % slope
-                    dc = diff(c)./diff(t);
+                    dc = diff(cfit)./diff(t);
                     [val, imaxdc] = max(dc);
 
-                    perfusion = dc(imaxdc)/a(imaxa);
+                    perfusion = dc(imaxdc)/afit(imaxa);
                     %
 
                     Par(ix  , iy  , iz) = perfusion;
@@ -375,24 +401,24 @@ function IRF = customDeconvolution(Output, Input)
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [down50, up20] = excluderecirculation(c, percUp, percDown)
-    [maxV,maxI]=max(c);
+function [down50, up20] = excluderecirculation(cfit, percUp, percDown)
+    [maxV,maxI]=max(cfit);
     down50 = maxI;
-    for i=maxI:length(c)
-        if (c(i) < c(down50)) && (c(i)>maxV*percDown)
+    for i=maxI:length(cfit)
+        if (cfit(i) < cfit(down50)) && (cfit(i)>maxV*percDown)
             down50 = i;
         end
-        if c(i)<maxV*percDown
+        if cfit(i)<maxV*percDown
             break;
         end
     end
 
     up20 = 1;
     for i=1:maxI
-        if (c(i)>maxV*percUp)
+        if (cfit(i)>maxV*percUp)
             up20 = i;
         end
-        if c(i)>maxV*percUp
+        if cfit(i)>maxV*percUp
             break;
         end
     end
@@ -483,7 +509,7 @@ function [result, A, B, D, to, tob, toe] = fitGamma(Ydat, Xdat)
 
     stpar = [2.7 0.08 100 0];
     lB = [0 0.001 0.000001 tob];
-    uB = [35 2 1000 toe];
+    uB = [35 2 100000 toe];
 
 
 
@@ -518,7 +544,7 @@ function [result, A, B, D] = fitGammaQ(Ydat, Xdat, Ain, Bin, Din, toin)
 %    toe = Xdat(1) - eps;
 %    tos = (toe+tob)/2;
 
- %   stpar = [Ain Bin Din toin];
+%    stpar = [Ain Bin Din toin];
 %    lB = [0 0.001 0.000001 tob];
 %    uB = [35 2 1000 toe];
     
